@@ -8,7 +8,7 @@ from telegram import Update
 from telegram.error import TelegramError
 from telegram.ext import Application, CommandHandler, ContextTypes
 
-# === OpenAI SDK ===
+# === OpenAI SDK (совместим с Groq OpenAI-compatible API) ===
 from openai import OpenAI
 
 # =========================
@@ -19,9 +19,9 @@ load_dotenv()
 BOT_TOKEN = (os.getenv("BOT_TOKEN") or "").strip()
 CHANNEL_ID = (os.getenv("CHANNEL_ID") or "").strip()  # @username или numeric (-100xxxxxxxxxx)
 
-OPENAI_API_KEY = (os.getenv("OPENAI_API_KEY") or "").strip()
+OPENAI_API_KEY = (os.getenv("OPENAI_API_KEY") or "").strip()            # допускаем sk_* и gsk_*
 OPENAI_MODEL = (os.getenv("OPENAI_MODEL") or "gpt-4o-mini").strip()
-OPENAI_BASE_URL = (os.getenv("OPENAI_BASE_URL") or "").strip()  # пусто для официального OpenAI
+OPENAI_BASE_URL = (os.getenv("OPENAI_BASE_URL") or "").strip()          # для Groq: https://api.groq.com/openai/v1
 
 POST_HOUR = int(os.getenv("POST_HOUR", "12"))
 POST_MINUTE = int(os.getenv("POST_MINUTE", "0"))
@@ -63,14 +63,15 @@ if not BOT_TOKEN:
     _fail("BOT_TOKEN не задан.")
 if not CHANNEL_ID:
     _fail("CHANNEL_ID не задан. Пример: @your_channel или -100xxxxxxxxxx.")
-if not OPENAI_API_KEY or not OPENAI_API_KEY.startswith("sk-"):
-    _fail("OPENAI_API_KEY не задан или неверный (должен начинаться с 'sk-').")
+# для Groq ключи начинаются с gsk_, у OpenAI — sk_. Принимаем любой непустой.
+if not OPENAI_API_KEY:
+    _fail("OPENAI_API_KEY не задан.")
 
-# Инициализация OpenAI-клиента (с поддержкой кастомного BASE_URL)
-if OPENAI_BASE_URL:
-    client = OpenAI(api_key=OPENAI_API_KEY, base_url=OPENAI_BASE_URL)
-else:
-    client = OpenAI(api_key=OPENAI_API_KEY)
+# Инициализация OpenAI-клиента (с поддержкой кастомного BASE_URL — Groq и т.п.)
+client = OpenAI(
+    api_key=OPENAI_API_KEY,
+    base_url=OPENAI_BASE_URL if OPENAI_BASE_URL else None
+)
 
 # =========================
 # CONTENT GENERATION
@@ -122,7 +123,7 @@ async def generate_bilingual_post() -> str:
             raise ValueError("Пустой ответ от модели")
         return text + post_signature()
     except Exception as e:
-        print(f"[OpenAI ERROR] {e}", file=sys.stderr)
+        print(f"[OpenAI/Groq ERROR] {e}", file=sys.stderr)
         fallback = (
             "[RUS]\n"
             "Сегодня готовим для вас новый полезный материал про рынок снеков и производство. "
@@ -139,8 +140,6 @@ async def generate_bilingual_post() -> str:
 async def publish_post(context: ContextTypes.DEFAULT_TYPE) -> None:
     text = await generate_bilingual_post()
     try:
-        # Telegram ограничение 4096 символов — наш текст заведомо короче,
-        # но на всякий случай режем и отправляем частями.
         MAX = 4096
         if len(text) <= MAX:
             await context.bot.send_message(chat_id=CHANNEL_ID, text=text)
@@ -162,7 +161,7 @@ async def start_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "Команды:\n"
         "/postnow — опубликовать RU+UZ пост сейчас\n"
         "/status — текущие настройки\n"
-        "/diag — диагностика OpenAI\n"
+        "/diag — диагностика LLM\n"
         "/help — помощь"
     )
 
@@ -180,6 +179,7 @@ async def status_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
         f"Канал: {CHANNEL_ID}\n"
         f"Модель: {OPENAI_MODEL}\n"
+        f"BASE_URL: {OPENAI_BASE_URL or 'default'}\n"
         f"Режим: {mode}\n"
         f"Ежедневный пост: {t} (Asia/Tashkent)\n"
         f"Подпись: всегда RU+UZ"
@@ -193,8 +193,8 @@ async def help_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
 
 async def diag_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Диагностика OpenAI: маскированный ключ, модель, base_url и тестовый ping."""
-    masked = OPENAI_API_KEY[:7] + "..." if OPENAI_API_KEY else "—"
+    """Диагностика LLM: маскированный ключ, модель, base_url и тестовый ping."""
+    masked = (OPENAI_API_KEY[:3] + "..." + OPENAI_API_KEY[-4:]) if OPENAI_API_KEY else "—"
     base = OPENAI_BASE_URL or "default"
     try:
         test = client.chat.completions.create(
@@ -205,7 +205,7 @@ async def diag_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         ok = (test.choices[0].message.content or "").strip()
         await update.message.reply_text(
-            f"Diag:\nKEY: {masked}\nMODEL: {OPENAI_MODEL}\nBASE_URL: {base}\nOK ✅ ({ok[:40]})"
+            f"Diag:\nKEY: {masked}\nMODEL: {OPENAI_MODEL}\nBASE_URL: {base}\nOK ✅ ({ok[:60]})"
         )
     except Exception as e:
         await update.message.reply_text(
@@ -220,7 +220,7 @@ def schedule_daily(app: Application):
         _fail(
             "JobQueue недоступен. Установи зависимость: python-telegram-bot[job-queue,webhooks]==21.4"
         )
-    # гасим возможные дубликаты при рестартах
+    # уберём дубликаты при рестартах
     for job in app.job_queue.get_jobs_by_name("daily_post_tashkent"):
         job.schedule_removal()
     app.job_queue.run_daily(
