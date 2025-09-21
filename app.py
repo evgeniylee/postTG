@@ -79,29 +79,52 @@ client = OpenAI(
 def build_bilingual_prompt() -> tuple[str, str]:
     import random
     topic = random.choice(CONTENT_PILLARS)
-    system = (
-        "Ты — редактор Telegram-канала бренда снеков в Узбекистане. "
-        "Готовь ЕЖЕДНЕВНЫЕ лаконичные посты без воды."
-    )
-    user = f"""
-Сгенерируй один компактный пост на тему: “{topic}”.
 
-Точный формат ответа (без заголовков и префиксов):
+    system = (
+        "Ты — SMM-редактор Telegram-канала про снеки для аудитории Узбекистана. "
+        "Пиши ДВУЯЗЫЧНО: сначала RUS, затем UZ (latin). "
+        "Тон — дружелюбный, живой, немного юмора; 2–3 подходящих эмодзи; "
+        "в каждом языке один интересный факт или мини-лайфхак по теме. "
+        "Не придумывай конкретные цифры, если не уверен — пиши без чисел. "
+        "Не добавляй подпись — её добавит бот."
+    )
+
+    style_ru = (
+        "Структура: 1) короткий хук с эмодзи; 2) 1 полезная мысль или интересный факт; "
+        "3) лёгкая шутка/самоирония по теме; 4) мягкий CTA с вопросом к читателю; "
+        "5) 2–4 релевантных хэштега. Объём 2–5 предложений, до ~350 символов. "
+        "Без ссылок, без цен/акций, без токсичности."
+    )
+
+    style_uz = (
+        "Struktura: 1) qisqa hook emoji bilan; 2) bitta foydali fikr yoki qiziqarli fakt; "
+        "3) mavzuga yengil hazil; 4) yumshoq CTA savol bilan; 5) 2–4 mos hashtag. "
+        "2–5 gap, ~350 belgi ichida. Havolalarsiz, narx/aksiya yo‘q, ijobiy ohang."
+    )
+
+    user = f"""
+Sana: bugun. Tema/Тема: “{topic}”.
+
+Format javobi / Формат ответа (bez sarlavha, bez prefixov):
 
 [RUS]
-(2–4 очень коротких предложения. {STYLE_RU})
-(до 3 уместных хэштегов максимум)
+(2–5 предложений, {style_ru})
+(используй 2–3 эмодзи по смыслу)
+(в конце 2–4 релевантных хэштега)
 
 [UZ]
-(2–4 gap, lotin alifbosi. {STYLE_UZ})
-(3 tagdan oshma)
+(2–5 gap, {style_uz})
+(2–3 mos emoji)
+(oxirida 2–4 hashtag)
 
-Правила:
-- RU и UZ формулировки — естественные для каждого языка, не калька.
-- Без списков, markdown и ссылок. Эмодзи — только если реально к месту.
-- Не добавляй подпись: её я вставлю сам.
+Qoidalar / Правила:
+- RU va UZ matnlar tabiiy bo‘lsin, o‘zaro to‘liq ko‘chirma emas.
+- Statistika agar aniq bo‘lmasa, sonlarsiz yoz.
+- Havola va narx yo‘q. Sog‘liq va siyosat mavzulariga kirmagin.
+- Подпись не добавляй — её вставит бот.
 """
     return system, user
+
 
 def post_signature() -> str:
     return f"\n\n{SIGN_RU}\n{SIGN_UZ}"
